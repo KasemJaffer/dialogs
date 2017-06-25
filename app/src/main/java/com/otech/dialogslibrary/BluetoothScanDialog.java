@@ -44,6 +44,7 @@ public class BluetoothScanDialog extends DialogFragment {
     private static final int REQUEST_ENABLE_BT = 232;
     private static final int REQUEST_PERMISSION_BT = 233;
     private static final String ARGS_OPTIONS = "options";
+    private static final String ARGS_MAKE_DISCOVERABLE = "discoverable";
 
     private BluetoothAdapter mBtAdapter;
     private OnBluetoothScanEventListener mOnBluetoothScanEventListener;
@@ -57,6 +58,7 @@ public class BluetoothScanDialog extends DialogFragment {
     private TextView title;
     private ProgressBar progressBar;
     private UIOptions options;
+    private boolean makeDiscoverable = false;
 
     private AdapterView.OnItemClickListener mDeviceClickListener
             = new AdapterView.OnItemClickListener() {
@@ -102,7 +104,7 @@ public class BluetoothScanDialog extends DialogFragment {
         }
     };
 
-    public static void show(AppCompatActivity context, UIOptions options) {
+    public static void show(AppCompatActivity context, UIOptions options, boolean makeBluetoothDiscoverable) {
         if (!(context instanceof OnBluetoothDeviceSelectedListener)) {
             throw new UnsupportedOperationException("Activity must implement OnBluetoothDeviceSelectedListener");
         }
@@ -113,6 +115,7 @@ public class BluetoothScanDialog extends DialogFragment {
         }
         Bundle args = new Bundle();
         args.putSerializable(ARGS_OPTIONS, options);
+        args.putBoolean(ARGS_MAKE_DISCOVERABLE, makeBluetoothDiscoverable);
         frag.setArguments(args);
 
         frag.show(fm, "scan_device_frag");
@@ -121,7 +124,9 @@ public class BluetoothScanDialog extends DialogFragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        this.options = (UIOptions) getArguments().get(ARGS_OPTIONS);
+        Bundle arguments = getArguments();
+        this.options = (UIOptions) arguments.get(ARGS_OPTIONS);
+        this.makeDiscoverable = arguments.getBoolean(ARGS_MAKE_DISCOVERABLE);
         this.mBtAdapter = BluetoothAdapter.getDefaultAdapter();
         this.mOnBluetoothScanEventListener = new OnBluetoothScanEventListener() {
             @Override
@@ -156,10 +161,7 @@ public class BluetoothScanDialog extends DialogFragment {
     public Dialog onCreateDialog(Bundle savedInstanceState) {
         AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
         LinearLayout parentLayout = buildView();
-        title.setText(options.titleWhenScanning);
-        pairedDevicesTitle.setText(options.titleForPairedDevices);
-        newDeviceTitle.setText(options.titleForNewDevices);
-        scanButton.setText(options.titleForScanButton);
+
 
         builder.setView(parentLayout);
 
@@ -171,9 +173,24 @@ public class BluetoothScanDialog extends DialogFragment {
 
         // Initialize array adapters. One for already paired devices and
         // one for newly discovered devices
-        pairedDevicesArrayAdapter =
-                new ArrayAdapter<String>(getActivity(), android.R.layout.simple_list_item_1);
-        newDevicesArrayAdapter = new ArrayAdapter<String>(getActivity(), android.R.layout.simple_list_item_1);
+        pairedDevicesArrayAdapter = new ArrayAdapter<String>(getActivity(), android.R.layout.simple_list_item_1) {
+            @NonNull
+            @Override
+            public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
+                TextView textView = (TextView) super.getView(position, convertView, parent);
+                textView.setTextColor(options.itemTextColor);
+                return textView;
+            }
+        };
+        newDevicesArrayAdapter = new ArrayAdapter<String>(getActivity(), android.R.layout.simple_list_item_1) {
+            @NonNull
+            @Override
+            public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
+                TextView textView = (TextView) super.getView(position, convertView, parent);
+                textView.setTextColor(options.itemTextColor);
+                return textView;
+            }
+        };
 
         // Set up the ListView for paired devices
         pairedDevices.setAdapter(pairedDevicesArrayAdapter);
@@ -193,10 +210,8 @@ public class BluetoothScanDialog extends DialogFragment {
             scanButton.setVisibility(View.GONE);
             progressBar.setVisibility(View.VISIBLE);
             newDevicesArrayAdapter.clear();
-            newDevicesArrayAdapter.notifyDataSetChanged();
-
             pairedDevicesArrayAdapter.clear();
-            pairedDevicesArrayAdapter.notifyDataSetChanged();
+
             Set<BluetoothDevice> pairedDevices = mBtAdapter.getBondedDevices();
             // If there are paired devices, add each one to the ArrayAdapter
             if (pairedDevices != null) {
@@ -204,14 +219,15 @@ public class BluetoothScanDialog extends DialogFragment {
                     pairedDevicesArrayAdapter.add(device.getName() + "\n" + device.getAddress());
                 }
             }
-        } else {
-            title.setText(options.titleWhenIdle);
-            scanButton.setVisibility(View.VISIBLE);
-            progressBar.setVisibility(View.GONE);
 
             if (pairedDevicesArrayAdapter.getCount() == 0) {
                 pairedDevicesArrayAdapter.add("No devices have been paired");
             }
+
+        } else {
+            title.setText(options.titleWhenIdle);
+            scanButton.setVisibility(View.VISIBLE);
+            progressBar.setVisibility(View.GONE);
 
             if (newDevicesArrayAdapter.getCount() == 0) {
                 newDevicesArrayAdapter.add("No devices found");
@@ -257,6 +273,7 @@ public class BluetoothScanDialog extends DialogFragment {
 
     @NonNull
     private LinearLayout buildView() {
+
         LinearLayout parentLayout = new LinearLayout(getActivity());
         parentLayout.setBackgroundColor(options.backgroundColor);
         parentLayout.setOrientation(LinearLayout.VERTICAL);
@@ -275,6 +292,7 @@ public class BluetoothScanDialog extends DialogFragment {
         ));
 
         title = new TextView(getActivity(), null, android.R.attr.windowTitleStyle);
+        title.setText(options.titleWhenScanning);
         title.setLayoutParams(new LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -292,6 +310,7 @@ public class BluetoothScanDialog extends DialogFragment {
         parentLayout.addView(linearLayout_94);
 
         pairedDevicesTitle = new TextView(getActivity());
+        pairedDevicesTitle.setText(options.titleForPairedDevices);
         pairedDevicesTitle.setBackgroundColor(options.headersTitleBackgroundColor);
         pairedDevicesTitle.setPadding(dpToPixels(getContext(), 5), 0, 0, 0);
         pairedDevicesTitle.setTextColor(options.headersTitleColor);
@@ -309,6 +328,7 @@ public class BluetoothScanDialog extends DialogFragment {
         parentLayout.addView(pairedDevices);
 
         newDeviceTitle = new TextView(getActivity());
+        newDeviceTitle.setText(options.titleForNewDevices);
         newDeviceTitle.setBackgroundColor(options.headersTitleBackgroundColor);
         newDeviceTitle.setPadding(dpToPixels(getContext(), 5), 0, 0, 0);
         newDeviceTitle.setTextColor(options.headersTitleColor);
@@ -326,12 +346,12 @@ public class BluetoothScanDialog extends DialogFragment {
         ));
         parentLayout.addView(newDevices);
 
-        scanButton = new Button(getActivity());
+        //Setup scan button
         int[] attrs = new int[]{R.attr.selectableItemBackground};
         TypedArray typedArray = getActivity().obtainStyledAttributes(attrs);
         int backgroundResource = typedArray.getResourceId(0, 0);
-        scanButton.setBackgroundResource(backgroundResource);
         typedArray.recycle();
+
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -339,6 +359,10 @@ public class BluetoothScanDialog extends DialogFragment {
         params.gravity = Gravity.END;
         padding = dpToPixels(getContext(), 2);
         params.setMargins(padding, padding, padding, padding);
+
+        scanButton = new Button(getActivity());
+        scanButton.setText(options.titleForScanButton);
+        scanButton.setBackgroundResource(backgroundResource);
         scanButton.setLayoutParams(params);
         scanButton.setTextColor(fetchAccentColor());
         parentLayout.addView(scanButton);
@@ -363,6 +387,14 @@ public class BluetoothScanDialog extends DialogFragment {
             startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
             return false;
         }
+
+        if (makeDiscoverable && mBtAdapter.getScanMode() !=
+                BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE) {
+            Intent discoverableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
+            discoverableIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300);
+            startActivity(discoverableIntent);
+        }
+
         return doDiscovery();
     }
 
@@ -429,6 +461,7 @@ public class BluetoothScanDialog extends DialogFragment {
         private int headersTitleBackgroundColor = Color.parseColor("#FF666666");
         private int backgroundColor = Color.WHITE;
         private int headersTitleColor = Color.WHITE;
+        private int itemTextColor = Color.BLACK;
 
         public UIOptions setTitleWhenIdle(String titleWhenIdle) {
             this.titleWhenIdle = titleWhenIdle;
@@ -468,6 +501,10 @@ public class BluetoothScanDialog extends DialogFragment {
         public UIOptions setHeadersTitleColor(int headersTitleColor) {
             this.headersTitleColor = headersTitleColor;
             return this;
+        }
+
+        public void setItemTextColor(int itemTextColor) {
+            this.itemTextColor = itemTextColor;
         }
     }
 }
