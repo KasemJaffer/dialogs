@@ -11,3 +11,7 @@
 	dependencies {
 		compile 'com.github.KasemJaffer:dialogs:1.4.5'
 	}
+
+### Example
+
+    BluetoothScanDialog.show(this, null, false)
