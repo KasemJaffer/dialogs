@@ -2,6 +2,7 @@ package com.otech.dialogslibrary;
 
 
 import android.Manifest;
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.bluetooth.BluetoothAdapter;
@@ -34,6 +35,7 @@ import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import java.io.Serializable;
 import java.util.Set;
 
 public class BluetoothScanDialog extends DialogFragment {
@@ -41,10 +43,40 @@ public class BluetoothScanDialog extends DialogFragment {
     private static final String TAG = "BluetoothScanService";
     private static final int REQUEST_ENABLE_BT = 232;
     private static final int REQUEST_PERMISSION_BT = 233;
+    private static final String ARGS_OPTIONS = "options";
 
     private BluetoothAdapter mBtAdapter;
     private OnBluetoothScanEventListener mOnBluetoothScanEventListener;
-    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
+    private ListView pairedDevices;
+    private TextView newDeviceTitle;
+    private TextView pairedDevicesTitle;
+    private ListView newDevices;
+    private Button scanButton;
+    private ArrayAdapter<String> newDevicesArrayAdapter;
+    private ArrayAdapter<String> pairedDevicesArrayAdapter;
+    private TextView title;
+    private ProgressBar progressBar;
+    private UIOptions options;
+
+    private AdapterView.OnItemClickListener mDeviceClickListener
+            = new AdapterView.OnItemClickListener() {
+        public void onItemClick(AdapterView<?> av, View v, int arg2, long arg3) {
+            // Cancel discovery because it's costly and we're about to connect
+            mBtAdapter.cancelDiscovery();
+
+            // Get the device MAC address, which is the last 17 chars in the View
+            String info = ((TextView) v).getText().toString();
+            String[] infos = info.split("\n");
+            if (infos.length == 2) {
+                String address = infos[1];
+                ((OnBluetoothDeviceSelectedListener) getActivity()).onDeviceSelected(address);
+                dismiss();
+            }
+
+        }
+    };
+
+    private BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
@@ -69,46 +101,27 @@ public class BluetoothScanDialog extends DialogFragment {
             }
         }
     };
-    private ListView pairedDevices;
-    private TextView newDeviceTitle;
-    private TextView pairedDevicesTitle;
-    private ListView newDevices;
-    private Button scanButton;
-    private ArrayAdapter<String> newDevicesArrayAdapter;
-    private ArrayAdapter<String> pairedDevicesArrayAdapter;
-    private TextView title;
-    private ProgressBar progressBar;
-    private AdapterView.OnItemClickListener mDeviceClickListener
-            = new AdapterView.OnItemClickListener() {
-        public void onItemClick(AdapterView<?> av, View v, int arg2, long arg3) {
-            // Cancel discovery because it's costly and we're about to connect
-            mBtAdapter.cancelDiscovery();
 
-            // Get the device MAC address, which is the last 17 chars in the View
-            String info = ((TextView) v).getText().toString();
-            String[] infos = info.split("\n");
-            if (infos.length == 2) {
-                String address = infos[1];
-                ((OnBluetoothDeviceSelectedListener) getActivity()).onDeviceSelected(address);
-                dismiss();
-            }
-
-        }
-    };
-
-    public static void show(AppCompatActivity context) {
+    public static void show(AppCompatActivity context, UIOptions options) {
         if (!(context instanceof OnBluetoothDeviceSelectedListener)) {
             throw new UnsupportedOperationException("Activity must implement OnBluetoothDeviceSelectedListener");
         }
         FragmentManager fm = context.getSupportFragmentManager();
         BluetoothScanDialog frag = new BluetoothScanDialog();
+        if (options == null) {
+            options = new UIOptions();
+        }
+        Bundle args = new Bundle();
+        args.putSerializable(ARGS_OPTIONS, options);
+        frag.setArguments(args);
+
         frag.show(fm, "scan_device_frag");
     }
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
+        this.options = (UIOptions) getArguments().get(ARGS_OPTIONS);
         this.mBtAdapter = BluetoothAdapter.getDefaultAdapter();
         this.mOnBluetoothScanEventListener = new OnBluetoothScanEventListener() {
             @Override
@@ -123,12 +136,7 @@ public class BluetoothScanDialog extends DialogFragment {
             public void onScanFinished() {
                 Dialog dialog = getDialog();
                 if (dialog != null) {
-                    title.setText("Select a device to connect");
-                    if (newDevicesArrayAdapter.getCount() == 0) {
-                        newDevicesArrayAdapter.add("No devices found");
-                    }
-                    scanButton.setVisibility(View.VISIBLE);
-                    progressBar.setVisibility(View.GONE);
+                    updateUI(false);
                 }
             }
         };
@@ -148,19 +156,16 @@ public class BluetoothScanDialog extends DialogFragment {
     public Dialog onCreateDialog(Bundle savedInstanceState) {
         AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
         LinearLayout parentLayout = buildView();
-        title.setText("Scanning for devices");
-        pairedDevicesTitle.setText("Paired Devices");
-        newDeviceTitle.setText("Other Available Devices");
-        scanButton.setText("Scan");
+        title.setText(options.titleWhenScanning);
+        pairedDevicesTitle.setText(options.titleForPairedDevices);
+        newDeviceTitle.setText(options.titleForNewDevices);
+        scanButton.setText(options.titleForScanButton);
+
         builder.setView(parentLayout);
 
         scanButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 startDiscovery();
-                v.setVisibility(View.GONE);
-                progressBar.setVisibility(View.VISIBLE);
-                newDevicesArrayAdapter.clear();
-                newDevicesArrayAdapter.notifyDataSetChanged();
             }
         });
 
@@ -182,18 +187,35 @@ public class BluetoothScanDialog extends DialogFragment {
         return builder.create();
     }
 
-    private void updatedPairedDevices() {
-        pairedDevicesArrayAdapter.clear();
-        pairedDevicesArrayAdapter.notifyDataSetChanged();
-        Set<BluetoothDevice> pairedDevices = mBtAdapter.getBondedDevices();
-        // If there are paired devices, add each one to the ArrayAdapter
-        if (pairedDevices.size() > 0) {
-            pairedDevicesTitle.setVisibility(View.VISIBLE);
-            for (BluetoothDevice device : pairedDevices) {
-                pairedDevicesArrayAdapter.add(device.getName() + "\n" + device.getAddress());
+    private void updateUI(boolean scanning) {
+        if (scanning) {
+            title.setText(options.titleWhenScanning);
+            scanButton.setVisibility(View.GONE);
+            progressBar.setVisibility(View.VISIBLE);
+            newDevicesArrayAdapter.clear();
+            newDevicesArrayAdapter.notifyDataSetChanged();
+
+            pairedDevicesArrayAdapter.clear();
+            pairedDevicesArrayAdapter.notifyDataSetChanged();
+            Set<BluetoothDevice> pairedDevices = mBtAdapter.getBondedDevices();
+            // If there are paired devices, add each one to the ArrayAdapter
+            if (pairedDevices != null) {
+                for (BluetoothDevice device : pairedDevices) {
+                    pairedDevicesArrayAdapter.add(device.getName() + "\n" + device.getAddress());
+                }
             }
         } else {
-            pairedDevicesArrayAdapter.add("No devices have been paired");
+            title.setText(options.titleWhenIdle);
+            scanButton.setVisibility(View.VISIBLE);
+            progressBar.setVisibility(View.GONE);
+
+            if (pairedDevicesArrayAdapter.getCount() == 0) {
+                pairedDevicesArrayAdapter.add("No devices have been paired");
+            }
+
+            if (newDevicesArrayAdapter.getCount() == 0) {
+                newDevicesArrayAdapter.add("No devices found");
+            }
         }
     }
 
@@ -208,7 +230,9 @@ public class BluetoothScanDialog extends DialogFragment {
 
         switch (requestCode) {
             case REQUEST_ENABLE_BT:
-                doDiscovery();
+                if (resultCode == Activity.RESULT_OK) {
+                    doDiscovery();
+                }
                 break;
             default:
                 super.onActivityResult(requestCode, resultCode, data);
@@ -234,7 +258,7 @@ public class BluetoothScanDialog extends DialogFragment {
     @NonNull
     private LinearLayout buildView() {
         LinearLayout parentLayout = new LinearLayout(getActivity());
-        parentLayout.setBackgroundColor(Color.WHITE);
+        parentLayout.setBackgroundColor(options.backgroundColor);
         parentLayout.setOrientation(LinearLayout.VERTICAL);
         parentLayout.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -250,9 +274,7 @@ public class BluetoothScanDialog extends DialogFragment {
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
 
-        title = new TextView(getActivity());
-//        title.setTextColor(Color.WHITE);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        title = new TextView(getActivity(), null, android.R.attr.windowTitleStyle);
         title.setLayoutParams(new LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -261,6 +283,7 @@ public class BluetoothScanDialog extends DialogFragment {
         linearLayout_94.addView(title);
 
         progressBar = new ProgressBar(getActivity(), null, android.R.attr.progressBarStyleSmall);
+        progressBar.setVisibility(View.GONE);
         progressBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -269,9 +292,9 @@ public class BluetoothScanDialog extends DialogFragment {
         parentLayout.addView(linearLayout_94);
 
         pairedDevicesTitle = new TextView(getActivity());
-        pairedDevicesTitle.setBackgroundColor(Color.parseColor("#FF666666"));
+        pairedDevicesTitle.setBackgroundColor(options.headersTitleBackgroundColor);
         pairedDevicesTitle.setPadding(dpToPixels(getContext(), 5), 0, 0, 0);
-        pairedDevicesTitle.setTextColor(Color.WHITE);
+        pairedDevicesTitle.setTextColor(options.headersTitleColor);
         pairedDevicesTitle.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -286,9 +309,9 @@ public class BluetoothScanDialog extends DialogFragment {
         parentLayout.addView(pairedDevices);
 
         newDeviceTitle = new TextView(getActivity());
-        newDeviceTitle.setBackgroundColor(Color.parseColor("#FF666666"));
+        newDeviceTitle.setBackgroundColor(options.headersTitleBackgroundColor);
         newDeviceTitle.setPadding(dpToPixels(getContext(), 5), 0, 0, 0);
-        newDeviceTitle.setTextColor(Color.WHITE);
+        newDeviceTitle.setTextColor(options.headersTitleColor);
         newDeviceTitle.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -304,7 +327,6 @@ public class BluetoothScanDialog extends DialogFragment {
         parentLayout.addView(newDevices);
 
         scanButton = new Button(getActivity());
-        scanButton.setVisibility(View.GONE);
         int[] attrs = new int[]{R.attr.selectableItemBackground};
         TypedArray typedArray = getActivity().obtainStyledAttributes(attrs);
         int backgroundResource = typedArray.getResourceId(0, 0);
@@ -315,10 +337,10 @@ public class BluetoothScanDialog extends DialogFragment {
                 LinearLayout.LayoutParams.WRAP_CONTENT
         );
         params.gravity = Gravity.END;
-        padding = dpToPixels(getContext(), 4);
+        padding = dpToPixels(getContext(), 2);
         params.setMargins(padding, padding, padding, padding);
         scanButton.setLayoutParams(params);
-        scanButton.setPadding(padding, padding, padding, padding);
+        scanButton.setTextColor(fetchAccentColor());
         parentLayout.addView(scanButton);
         return parentLayout;
     }
@@ -346,7 +368,7 @@ public class BluetoothScanDialog extends DialogFragment {
 
     private boolean doDiscovery() {
 
-        updatedPairedDevices();
+        updateUI(true);
 
         // If we're already discovering, stop it
         if (mBtAdapter.isDiscovering()) {
@@ -376,6 +398,17 @@ public class BluetoothScanDialog extends DialogFragment {
         return (int) (dp * scale + 0.5f);
     }
 
+    private int fetchAccentColor() {
+        TypedValue typedValue = new TypedValue();
+
+        TypedArray a = getContext().obtainStyledAttributes(typedValue.data, new int[]{R.attr.colorAccent});
+        int color = a.getColor(0, 0);
+
+        a.recycle();
+
+        return color;
+    }
+
     public interface OnBluetoothDeviceSelectedListener {
         void onDeviceSelected(String address);
     }
@@ -387,5 +420,54 @@ public class BluetoothScanDialog extends DialogFragment {
         void onScanFinished();
     }
 
+    public static class UIOptions implements Serializable {
+        private String titleWhenIdle = "Select a device to connect";
+        private String titleWhenScanning = "Scanning for devices";
+        private String titleForPairedDevices = "Paired Devices";
+        private String titleForNewDevices = "Other Available Devices";
+        private String titleForScanButton = "Scan";
+        private int headersTitleBackgroundColor = Color.parseColor("#FF666666");
+        private int backgroundColor = Color.WHITE;
+        private int headersTitleColor = Color.WHITE;
 
+        public UIOptions setTitleWhenIdle(String titleWhenIdle) {
+            this.titleWhenIdle = titleWhenIdle;
+            return this;
+        }
+
+        public UIOptions setTitleWhenScanning(String titleWhenScanning) {
+            this.titleWhenScanning = titleWhenScanning;
+            return this;
+        }
+
+        public UIOptions setTitleForPairedDevices(String titleForPairedDevices) {
+            this.titleForPairedDevices = titleForPairedDevices;
+            return this;
+        }
+
+        public UIOptions setTitleForNewDevices(String titleForNewDevices) {
+            this.titleForNewDevices = titleForNewDevices;
+            return this;
+        }
+
+        public UIOptions setTitleForScanButton(String titleForScanButton) {
+            this.titleForScanButton = titleForScanButton;
+            return this;
+        }
+
+        public UIOptions setHeadersTitleBackgroundColor(int headersTitleBackgroundColor) {
+            this.headersTitleBackgroundColor = headersTitleBackgroundColor;
+            return this;
+        }
+
+        public UIOptions setBackgroundColor(int backgroundColor) {
+            this.backgroundColor = backgroundColor;
+            return this;
+        }
+
+        public UIOptions setHeadersTitleColor(int headersTitleColor) {
+            this.headersTitleColor = headersTitleColor;
+            return this;
+        }
+    }
 }
