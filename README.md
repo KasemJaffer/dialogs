@@ -1,6 +1,9 @@
-## Collections of Useful Android Dialogs
+Collections of Useful Android Dialogs
+==========
 
-### Usage:
+![Release](https://jitpack.io/v/KasemJaffer/dialogs.svg) https://jitpack.io/#KasemJaffer/dialogs
+
+```groovy
 	allprojects {
 		repositories {
 			...
@@ -11,7 +14,9 @@
 	dependencies {
 		compile 'com.github.KasemJaffer:dialogs:1.4.5'
 	}
-
-### Example
-
+```
+Example
+=======
+```java
     BluetoothScanDialog.show(this, null, false)
+ ```
